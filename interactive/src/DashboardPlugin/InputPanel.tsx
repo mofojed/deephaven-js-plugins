@@ -1,6 +1,8 @@
 import { Button, LoadingOverlay } from '@deephaven/components';
 import { DashboardPanelProps, PanelEvent } from '@deephaven/dashboard';
+import { Table } from '@deephaven/jsapi-shim';
 import Log from '@deephaven/log';
+import debounce from 'lodash.debounce';
 import React, { ReactNode } from 'react';
 import ReactJson from 'react-json-view';
 import './InputPanel.scss';
@@ -21,6 +23,22 @@ export type JsWidgetExportedObject = {
   fetch: () => Promise<unknown>;
 };
 
+export type InteractiveQueryInput<T = any> = {
+  name: string;
+  type: string;
+  value: T;
+};
+
+export type InteractiveQuerySliderInput = InteractiveQueryInput<number> & {
+  type: 'slider';
+  min: number;
+  max: number;
+};
+
+export type InteractiveQueryTextInput = InteractiveQueryInput<string> & {
+  type: 'text';
+};
+
 export type InputPanelProps = DashboardPanelProps & StateProps;
 
 export type JsWidget = {
@@ -32,22 +50,42 @@ export type JsWidget = {
 // Only have two types for now
 export type JsWidgetInputType = 'slider' | 'text';
 
-export type JsWidgetInput<T = string> = {
+export type JsWidgetInput<T = any> = {
+  queryInput: InteractiveQueryInput<T>;
+
   type: JsWidgetInputType;
 
-  value: T;
-
   // Update the value of this input
-  setValue: (value: T) => Promise<void>;
+  setValue: (value: T) => void;
+};
+
+export type JsWidgetSliderInput = JsWidgetInput<number> & { type: 'slider' };
+export type JsWidgetTextInput = JsWidgetInput<number> & { type: 'text' };
+
+export type InteractiveQuery = {
+  revision: number;
+  inputs: InteractiveQueryInput[];
 };
 
 export type InputPanelState = {
   error?: unknown;
-  inputs?: Record<string, JsWidgetInput>;
+  object?: JsWidget;
+  inputs?: JsWidgetInput[];
+  revisionTable?: Table;
 };
 
 export function isJsWidget(object: unknown): object is JsWidget {
   return typeof (object as JsWidget).getDataAsBase64 === 'function';
+}
+
+export function isSliderInput(
+  input: JsWidgetInput
+): input is JsWidgetSliderInput {
+  return input.type === 'slider';
+}
+
+export function isTextInput(input: JsWidgetInput): input is JsWidgetTextInput {
+  return input.type === 'text';
 }
 
 /**
@@ -68,20 +106,61 @@ export class InputPanel extends React.Component<
     this.state = {
       error: undefined,
       object: undefined,
+      inputs: [],
+      revisionTable: undefined,
     };
   }
 
   componentDidMount(): void {
-    this.fetchObject();
+    this.init();
   }
 
-  async fetchObject(): Promise<void> {
+  async init(): Promise<void> {
     try {
       const { fetch, metadata } = this.props;
       log.info('fetchObject...', metadata);
       const object = await fetch();
       log.info('Object fetched: ', object);
-      this.setState({ object });
+      if (!isJsWidget(object)) {
+        this.handleError(new Error('Unknown object type'));
+        return;
+      }
+
+      const json = object.getDataAsBase64();
+      const interactiveQuery = JSON.parse(json) as InteractiveQuery;
+
+      const exportedObjects = [...object.exportedObjects];
+      // First table is the revision table, then inputs, then outputs
+      const revisionTable = exportedObjects.pop() as unknown as Table;
+      const exportedInputTableObjects = exportedObjects.splice(
+        0,
+        interactiveQuery.inputs.length
+      );
+      const inputPromises: Promise<unknown>[] = interactiveQuery.inputs.map(
+        async (input, i) => {
+          const inputTable = await exportedInputTableObjects[i].fetch();
+
+          const debouncedSetValue = debounce((value: unknown) => {
+            const newRow = { key: '0', value };
+            return (inputTable as any).inputTable.addRows([newRow]);
+          });
+
+          return {
+            queryInput: input,
+            type: input.type,
+            setValue: (value: unknown) => {
+              input.value = value;
+              debouncedSetValue(value);
+            },
+          };
+        }
+      );
+
+      const inputs: JsWidgetInput[] = (await Promise.all(
+        inputPromises
+      )) as JsWidgetInput[];
+
+      this.setState({ inputs, object, revisionTable });
     } catch (e: unknown) {
       this.handleError(e);
     }
@@ -124,7 +203,7 @@ export class InputPanel extends React.Component<
     }
     const data = object.getDataAsBase64();
     try {
-      const dataJson = JSON.parse(atob(data));
+      const dataJson = JSON.parse(Buffer.from(data, 'base64').toString());
       return <ReactJson src={dataJson} theme="monokai" />;
     } catch (e) {
       return <div className="base64-data">{data}</div>;
@@ -156,22 +235,41 @@ export class InputPanel extends React.Component<
   render(): ReactNode {
     const { metadata } = this.props;
     const { name, type } = metadata;
-    const { error, object } = this.state;
+    const { error, inputs, object } = this.state;
     const isLoading = error === undefined && object === undefined;
     const isLoaded = object !== undefined;
     const errorMessage = error ? `${error}` : undefined;
 
     return (
-      <div className="object-panel-content">
+      <div className="input-panel-content">
         <div className="title">
           {name} ({type})
         </div>
         {isLoaded && (
           <>
-            <div className="object-panel-exported-tables">
-              {this.renderExportedObjectList()}
+            <div className="input-panel-inputs">
+              {inputs.map(widgetInput => {
+                if (isSliderInput(widgetInput)) {
+                  return (
+                    <input
+                      type="range"
+                      value={widgetInput.queryInput.value}
+                      min={-100}
+                      max={100}
+                    ></input>
+                  );
+                }
+                if (isTextInput(widgetInput)) {
+                  return (
+                    <input
+                      type="text"
+                      value={widgetInput.queryInput.value}
+                    ></input>
+                  );
+                }
+                return null;
+              })}
             </div>
-            <div className="object-panel-data">{this.renderObjectData()}</div>
           </>
         )}
         <LoadingOverlay
@@ -184,4 +282,4 @@ export class InputPanel extends React.Component<
   }
 }
 
-export default ObjectPanel;
+export default InputPanel;
