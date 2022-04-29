@@ -2,6 +2,7 @@
   "name": "deephaven-js-plugins",
   "workspaces": [
     "dashboard-object-viewer",
+    "interactive",
     "matplotlib",
     "table-example"
   ],
