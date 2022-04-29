@@ -4,8 +4,15 @@ import { Table } from '@deephaven/jsapi-shim';
 import Log from '@deephaven/log';
 import debounce from 'lodash.debounce';
 import React, { ReactNode } from 'react';
-import ReactJson from 'react-json-view';
+import shortid from 'shortid';
+import {
+  InteractiveQueryInput,
+  isSliderInput,
+  isTextInput,
+  JsWidgetInput,
+} from './inputs/InputTypes';
 import './InputPanel.scss';
+import SliderInput from './inputs/SliderInput';
 
 const log = Log.module('InputPanel');
 
@@ -23,22 +30,6 @@ export type JsWidgetExportedObject = {
   fetch: () => Promise<unknown>;
 };
 
-export type InteractiveQueryInput<T = any> = {
-  name: string;
-  type: string;
-  value: T;
-};
-
-export type InteractiveQuerySliderInput = InteractiveQueryInput<number> & {
-  type: 'slider';
-  min: number;
-  max: number;
-};
-
-export type InteractiveQueryTextInput = InteractiveQueryInput<string> & {
-  type: 'text';
-};
-
 export type InputPanelProps = DashboardPanelProps & StateProps;
 
 export type JsWidget = {
@@ -46,21 +37,6 @@ export type JsWidget = {
   getDataAsBase64: () => string;
   exportedObjects: JsWidgetExportedObject[];
 };
-
-// Only have two types for now
-export type JsWidgetInputType = 'slider' | 'text';
-
-export type JsWidgetInput<T = any> = {
-  queryInput: InteractiveQueryInput<T>;
-
-  type: JsWidgetInputType;
-
-  // Update the value of this input
-  setValue: (value: T) => void;
-};
-
-export type JsWidgetSliderInput = JsWidgetInput<number> & { type: 'slider' };
-export type JsWidgetTextInput = JsWidgetInput<number> & { type: 'text' };
 
 export type InteractiveQuery = {
   revision: number;
@@ -78,16 +54,6 @@ export function isJsWidget(object: unknown): object is JsWidget {
   return typeof (object as JsWidget).getDataAsBase64 === 'function';
 }
 
-export function isSliderInput(
-  input: JsWidgetInput
-): input is JsWidgetSliderInput {
-  return input.type === 'slider';
-}
-
-export function isTextInput(input: JsWidgetInput): input is JsWidgetTextInput {
-  return input.type === 'text';
-}
-
 /**
  * Panel for showing inputs for an interactive query
  */
@@ -96,12 +62,16 @@ export class InputPanel extends React.Component<
   InputPanelState
 > {
   static COMPONENT = '@deephaven/js-plugin-interactive.InputPanel';
+  outputPanelIds: Map<any, any>;
 
   constructor(props: InputPanelProps) {
     super(props);
 
     this.handleError = this.handleError.bind(this);
     this.handleExportedTypeClick = this.handleExportedTypeClick.bind(this);
+    this.refreshOutputs = debounce(this.refreshOutputs.bind(this), 150);
+
+    this.outputPanelIds = new Map();
 
     this.state = {
       error: undefined,
@@ -115,6 +85,46 @@ export class InputPanel extends React.Component<
     this.init();
   }
 
+  async refreshOutputs(): Promise<void> {
+    // We need to fetch the object again, to get the outputs
+    try {
+      log.info('refreshOutputs...');
+      const { fetch } = this.props;
+      const object = await fetch();
+      if (!isJsWidget(object)) {
+        log.info('Unknown object type');
+        this.handleError(new Error('Unknown object type'));
+        return;
+      }
+
+      const json = atob(object.getDataAsBase64());
+      const interactiveQuery = JSON.parse(json) as InteractiveQuery;
+
+      // Slice off just the outputs
+      const outputObjects = object.exportedObjects.slice(
+        1 + interactiveQuery.inputs.length
+      );
+      for (let i = 0; i < outputObjects.length; i += 1) {
+        const { glEventHub, metadata } = this.props;
+        const { name } = metadata;
+        const outputObject = outputObjects[i];
+        const panelId = this.outputPanelIds.get(i) ?? shortid();
+        this.outputPanelIds.set(i, panelId);
+        const openOptions = {
+          fetch: () => outputObject.fetch(),
+          widget: { name: `${name}/${i}`, type: outputObject.type },
+          panelId,
+        };
+
+        log.info('openWidget', openOptions);
+
+        glEventHub.emit(PanelEvent.OPEN, openOptions);
+      }
+    } catch (e: unknown) {
+      this.handleError(e);
+    }
+  }
+
   async init(): Promise<void> {
     try {
       const { fetch, metadata } = this.props;
@@ -122,14 +132,19 @@ export class InputPanel extends React.Component<
       const object = await fetch();
       log.info('Object fetched: ', object);
       if (!isJsWidget(object)) {
+        log.info('Unknown object type');
         this.handleError(new Error('Unknown object type'));
         return;
       }
 
-      const json = object.getDataAsBase64();
+      const json = atob(object.getDataAsBase64());
       const interactiveQuery = JSON.parse(json) as InteractiveQuery;
 
       const exportedObjects = [...object.exportedObjects];
+
+      log.info('interactiveQuery', interactiveQuery);
+      log.info('exportedObjects', exportedObjects);
+
       // First table is the revision table, then inputs, then outputs
       const revisionTable = exportedObjects.pop() as unknown as Table;
       const exportedInputTableObjects = exportedObjects.splice(
@@ -138,20 +153,20 @@ export class InputPanel extends React.Component<
       );
       const inputPromises: Promise<unknown>[] = interactiveQuery.inputs.map(
         async (input, i) => {
-          const inputTable = await exportedInputTableObjects[i].fetch();
+          const table = await exportedInputTableObjects[i].fetch();
+          const inputTable = await (table as any).inputTable();
 
-          const debouncedSetValue = debounce((value: unknown) => {
-            const newRow = { key: '0', value };
-            return (inputTable as any).inputTable.addRows([newRow]);
-          });
+          log.info('Got input table', inputTable);
 
           return {
             queryInput: input,
             type: input.type,
-            setValue: (value: unknown) => {
-              input.value = value;
-              debouncedSetValue(value);
-            },
+            setValue: debounce((value: unknown) => {
+              log.info('setValue', value);
+              const newRow = { key: '0', value };
+              this.refreshOutputs();
+              return inputTable.addRows([newRow]);
+            }, 150),
           };
         }
       );
@@ -160,6 +175,7 @@ export class InputPanel extends React.Component<
         inputPromises
       )) as JsWidgetInput[];
 
+      log.info('inputs', inputs);
       this.setState({ inputs, object, revisionTable });
     } catch (e: unknown) {
       this.handleError(e);
@@ -190,24 +206,6 @@ export class InputPanel extends React.Component<
   handleError(error: unknown): void {
     log.error(error);
     this.setState({ error, object: undefined });
-  }
-
-  renderObjectData(): JSX.Element {
-    const { object } = this.state;
-    if (!object) {
-      return null;
-    }
-    log.info('Rendering object data');
-    if (!isJsWidget(object)) {
-      return <div className="error-message">Object is not a widget</div>;
-    }
-    const data = object.getDataAsBase64();
-    try {
-      const dataJson = JSON.parse(Buffer.from(data, 'base64').toString());
-      return <ReactJson src={dataJson} theme="monokai" />;
-    } catch (e) {
-      return <div className="base64-data">{data}</div>;
-    }
   }
 
   renderExportedObjectList(): JSX.Element {
@@ -249,19 +247,24 @@ export class InputPanel extends React.Component<
           <>
             <div className="input-panel-inputs">
               {inputs.map(widgetInput => {
+                log.info(
+                  'widgetInput is',
+                  widgetInput,
+                  'isSliderInput is',
+                  isSliderInput
+                );
                 if (isSliderInput(widgetInput)) {
                   return (
-                    <input
-                      type="range"
-                      value={widgetInput.queryInput.value}
-                      min={-100}
-                      max={100}
-                    ></input>
+                    <SliderInput
+                      key={widgetInput.queryInput.name}
+                      input={widgetInput}
+                    />
                   );
                 }
                 if (isTextInput(widgetInput)) {
                   return (
                     <input
+                      key={widgetInput.queryInput.name}
                       type="text"
                       value={widgetInput.queryInput.value}
                     ></input>
