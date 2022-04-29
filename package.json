@@ -4,7 +4,8 @@
     "dashboard-object-viewer",
     "interactive",
     "matplotlib",
-    "table-example"
+    "table-example",
+    "treemap"
   ],
   "scripts": {
     "build": "npm run build --workspaces",

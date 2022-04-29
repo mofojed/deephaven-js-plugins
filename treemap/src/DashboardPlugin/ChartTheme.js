@@ -1,0 +1,18 @@
+export default Object.freeze({
+  paper_bgcolor: '#2d2a2e',
+  plot_bgcolor: '#322f33',
+  title_color: '#f0f0ee',
+  colorway: '#76d9e4 #9edc6f #fcd65b #aa9af4 #f37e3f #f95d84 #f0f0ee',
+  gridcolor: '#403e41',
+  linecolor: '#5b5a5c',
+  zerolinecolor: '#c0bfbf',
+  activecolor: '#4878ea',
+  rangebgcolor: '#4878ea77',
+  area_color: '#76d9e4',
+  trend_color: '#d5f0c1',
+  line_color: '#9edc6f',
+  error_band_line_color: '#ffffff',
+  error_band_fill_color: '#ddefcc11',
+  ohlc_increasing: '#9edc6f',
+  ohlc_decreasing: '#f95d84',
+});
