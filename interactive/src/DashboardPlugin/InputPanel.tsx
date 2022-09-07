@@ -1,20 +1,15 @@
-import { Button, LoadingOverlay } from '@deephaven/components';
+import { LoadingOverlay } from '@deephaven/components';
 import { DashboardPanelProps, PanelEvent } from '@deephaven/dashboard';
 import { Table } from '@deephaven/jsapi-shim';
 import Log from '@deephaven/log';
 import debounce from 'lodash.debounce';
 import React, { ReactNode } from 'react';
 import shortid from 'shortid';
-import {
-  InteractiveQueryInput,
-  isSliderInput,
-  isTextInput,
-  JsWidgetInput,
-} from './inputs/InputTypes';
+import { InteractiveQueryInput, JsWidgetInput } from './inputs/InputTypes';
 import './InputPanel.scss';
-import SliderInput from './inputs/SliderInput';
+import WidgetInput from './inputs/WidgetInput';
 
-const log = Log.module('InputPanel');
+const log = Log.module('@deephaven/js-plugin-interactive/InputPanel');
 
 type StateProps = {
   fetch: () => Promise<unknown>;
@@ -69,6 +64,7 @@ export class InputPanel extends React.Component<
 
     this.handleError = this.handleError.bind(this);
     this.handleExportedTypeClick = this.handleExportedTypeClick.bind(this);
+    this.handleRevisionUpdated = this.handleRevisionUpdated.bind(this);
     this.refreshOutputs = debounce(this.refreshOutputs.bind(this), 150);
 
     this.outputPanelIds = new Map();
@@ -100,10 +96,13 @@ export class InputPanel extends React.Component<
       const json = atob(object.getDataAsBase64());
       const interactiveQuery = JSON.parse(json) as InteractiveQuery;
 
+      log.info('refreshOutputs exportedObjects', object.exportedObjects);
+
       // Slice off just the outputs
       const outputObjects = object.exportedObjects.slice(
         1 + interactiveQuery.inputs.length
       );
+      log.info('outputObjects:', outputObjects);
       for (let i = 0; i < outputObjects.length; i += 1) {
         const { glEventHub, metadata } = this.props;
         const { name } = metadata;
@@ -146,26 +145,29 @@ export class InputPanel extends React.Component<
       log.info('exportedObjects', exportedObjects);
 
       // First table is the revision table, then inputs, then outputs
-      const revisionTable = exportedObjects.pop() as unknown as Table;
+      const revisionTableObject = exportedObjects.shift();
       const exportedInputTableObjects = exportedObjects.splice(
         0,
         interactiveQuery.inputs.length
       );
       const inputPromises: Promise<unknown>[] = interactiveQuery.inputs.map(
         async (input, i) => {
-          const table = await exportedInputTableObjects[i].fetch();
+          const table = (await exportedInputTableObjects[i].fetch()) as Table;
           const inputTable = await (table as any).inputTable();
 
           log.info('Got input table', inputTable);
 
+          table.setViewport(0, 0);
+
           return {
             queryInput: input,
             type: input.type,
-            setValue: debounce((value: unknown) => {
+            setValue: debounce(async (value: unknown) => {
               log.info('setValue', value);
               const newRow = { key: '0', value };
-              this.refreshOutputs();
-              return inputTable.addRows([newRow]);
+              const result = await inputTable.addRows([newRow]);
+              log.info('setValue result', result);
+              return result;
             }, 150),
           };
         }
@@ -174,9 +176,18 @@ export class InputPanel extends React.Component<
       const inputs: JsWidgetInput[] = (await Promise.all(
         inputPromises
       )) as JsWidgetInput[];
+      const revisionTable = (await revisionTableObject.fetch()) as Table;
+
+      revisionTable.addEventListener(
+        dh.Table.EVENT_UPDATED,
+        this.handleRevisionUpdated
+      );
+      revisionTable.setViewport(0, 0, [revisionTable.findColumn('revision')]);
 
       log.info('inputs', inputs);
+      log.info('revisionTable', revisionTable);
       this.setState({ inputs, object, revisionTable });
+      this.refreshOutputs();
     } catch (e: unknown) {
       this.handleError(e);
     }
@@ -208,26 +219,9 @@ export class InputPanel extends React.Component<
     this.setState({ error, object: undefined });
   }
 
-  renderExportedObjectList(): JSX.Element {
-    const { object } = this.state;
-    if (!object || !isJsWidget(object)) {
-      return null;
-    }
-
-    return (
-      <>
-        {object.exportedObjects.map((exportedObject, index) => (
-          <Button
-            // eslint-disable-next-line react/no-array-index-key
-            key={index}
-            kind="ghost"
-            onClick={() => this.handleExportedTypeClick(exportedObject, index)}
-          >
-            {exportedObject.type} {index}
-          </Button>
-        ))}
-      </>
-    );
+  handleRevisionUpdated(event): void {
+    log.info('Revision updated', event);
+    this.refreshOutputs();
   }
 
   render(): ReactNode {
@@ -246,32 +240,12 @@ export class InputPanel extends React.Component<
         {isLoaded && (
           <>
             <div className="input-panel-inputs">
-              {inputs.map(widgetInput => {
-                log.info(
-                  'widgetInput is',
-                  widgetInput,
-                  'isSliderInput is',
-                  isSliderInput
-                );
-                if (isSliderInput(widgetInput)) {
-                  return (
-                    <SliderInput
-                      key={widgetInput.queryInput.name}
-                      input={widgetInput}
-                    />
-                  );
-                }
-                if (isTextInput(widgetInput)) {
-                  return (
-                    <input
-                      key={widgetInput.queryInput.name}
-                      type="text"
-                      value={widgetInput.queryInput.value}
-                    ></input>
-                  );
-                }
-                return null;
-              })}
+              {inputs.map(widgetInput => (
+                <WidgetInput
+                  key={widgetInput.queryInput.name}
+                  input={widgetInput}
+                />
+              ))}
             </div>
           </>
         )}

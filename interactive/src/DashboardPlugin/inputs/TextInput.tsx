@@ -1,10 +1,10 @@
 import { ChangeEvent, useCallback, useState } from 'react';
-import { JsWidgetSliderInput } from './InputTypes';
+import { JsWidgetTextInput } from './InputTypes';
 
-export const SliderInput = ({
+export const TextInput = ({
   input,
 }: {
-  input: JsWidgetSliderInput;
+  input: JsWidgetTextInput;
 }): JSX.Element => {
   const { queryInput } = input;
   const { props: inputProps } = queryInput;
@@ -12,7 +12,7 @@ export const SliderInput = ({
   const handleChange = useCallback(function onChange(
     event: ChangeEvent<HTMLInputElement>
   ) {
-    const newValue = Number.parseInt(event.target.value);
+    const newValue = event.target.value;
     setValue(newValue);
     input.setValue(newValue);
   },
@@ -20,16 +20,10 @@ export const SliderInput = ({
   return (
     <div className="dh-slider-input">
       <label>{input.queryInput.name}</label>
-      <input
-        type="range"
-        min={inputProps.min}
-        max={inputProps.max}
-        value={value}
-        onChange={handleChange}
-      />
+      <input type="text" value={value} onChange={handleChange} />
       {value}
     </div>
   );
 };
 
-export default SliderInput;
+export default TextInput;

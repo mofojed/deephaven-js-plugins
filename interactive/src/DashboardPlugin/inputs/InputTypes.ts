@@ -1,42 +1,37 @@
-export type InteractiveQueryInput<T = any> = {
+export type InteractiveQueryInput<Props extends {} = {}> = {
   name: string;
   type: string;
-  value: T;
+  props: Props;
 };
 
-export type InteractiveQuerySliderInput = InteractiveQueryInput<number> & {
-  type: 'SliderType';
-  min: number;
-  max: number;
-};
+export type JsWidgetInput<T = any, Props extends {} = {}> = {
+  queryInput: InteractiveQueryInput<Props>;
 
-export type InteractiveQueryTextInput = InteractiveQueryInput<string> & {
-  type: 'text';
-};
-
-// Only have two types for now
-export type JsWidgetInputType = 'SliderType' | 'text';
-
-export type JsWidgetInput<T = any> = {
-  queryInput: InteractiveQueryInput<T>;
-
-  type: JsWidgetInputType;
+  type: string;
 
   // Update the value of this input
   setValue: (value: T) => void;
 };
 
-export type JsWidgetSliderInput = JsWidgetInput<number> & {
-  type: 'SliderType';
+export type JsWidgetSliderInput = JsWidgetInput<
+  number,
+  { min: number; max: number; defaultValue: number }
+> & {
+  type: 'dh.slider';
 };
-export type JsWidgetTextInput = JsWidgetInput<number> & { type: 'text' };
+export type JsWidgetTextInput = JsWidgetInput<
+  string,
+  { defaultValue: string }
+> & {
+  type: 'dh.text';
+};
 
 export function isSliderInput(
   input: JsWidgetInput
 ): input is JsWidgetSliderInput {
-  return input.type === 'SliderType';
+  return input.type === 'dh.slider';
 }
 
 export function isTextInput(input: JsWidgetInput): input is JsWidgetTextInput {
-  return input.type === 'text';
+  return input.type === 'dh.text';
 }
