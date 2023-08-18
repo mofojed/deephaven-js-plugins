@@ -1,36 +1,21 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  ChartPanel,
-  type ChartPanelProps,
-} from '@deephaven/dashboard-core-plugins';
-import type { Table } from '@deephaven/jsapi-types';
-import Log from '@deephaven/log';
-import { assertNotNull } from '@deephaven/utils';
-import { ChartTheme } from '@deephaven/chart';
+import { type ChartPanelProps } from '@deephaven/dashboard-core-plugins';
 import { useApi } from '@deephaven/jsapi-bootstrap';
+import type { Figure, Table } from '@deephaven/jsapi-types';
+import Log from '@deephaven/log';
+import shortid from 'shortid';
+import ComponentObject from './ComponentObject';
 
 const log = Log.module('@deephaven/js-plugin-ui/UiPanel');
 
 export interface ComponentWidget {
+  addEventListener: (
+    type: string,
+    listener: (event: unknown) => void
+  ) => () => void;
   getDataAsBase64(): string;
   exportedObjects: { fetch(): Promise<Table> }[];
   sendMessage: (message: string, args: unknown[]) => void;
-}
-
-interface ComponentWidgetData {
-  // deephaven: {
-  //   mappings: Array<{
-  //     table: number;
-  //     data_columns: Record<string, string[]>;
-  //   }>;
-  //   is_user_set_template: boolean;
-  //   is_user_set_color: boolean;
-  // };
-  // plotly: PlotlyDataUiConfig;
-}
-
-function getWidgetData(widgetInfo: ComponentWidget): ComponentWidgetData {
-  return JSON.parse(atob(widgetInfo.getDataAsBase64()));
 }
 
 export interface ComponentPanelProps extends ChartPanelProps {
@@ -38,52 +23,69 @@ export interface ComponentPanelProps extends ChartPanelProps {
 }
 
 function ComponentPanel(props: ComponentPanelProps) {
+  const { fetch } = props;
   const dh = useApi();
-  const { fetch, ...rest } = props;
 
-  const [widget, setWidget] = useState<ComponentWidget | null>(null);
+  const [widget, setWidget] = useState<ComponentWidget>();
+  const [objects, setObjects] = useState<(Table | Figure)[]>([]);
 
-  useEffect(() => {
-    async function loadObjects() {
-      const widgetInfo = await fetch();
-      log.info('MJB widgetInfo', widgetInfo);
-      setWidget(widgetInfo);
+  const reloadObjects = useCallback(async () => {
+    if (widget == null) {
+      return;
     }
-    loadObjects();
+
+    const childObjects = await Promise.all(
+      widget.exportedObjects.map(o => o.fetch())
+    );
+    log.info('MJB new objects', childObjects);
+    setObjects(childObjects);
+  }, [widget]);
+
+  const reloadWidget = useCallback(async () => {
+    const widgetInfo = await fetch();
+    log.info('MJB widgetInfo', widgetInfo);
+    setWidget(widgetInfo);
   }, [fetch]);
 
-  // TODO: Render all the child objects
-  if (widget) {
-    return <div>{`Widget: ${widget}`}</div>;
-  }
+  useEffect(() => {
+    if (widget == null) {
+      return;
+    }
+    reloadObjects();
+    return widget.addEventListener(dh.Widget.EVENT_MESSAGE, async event => {
+      const { exportedObjects } = (event as any).detail;
+      console.log('MJB event is', event);
 
-  return null;
-  // const makeModel = useCallback(async () => {
-  //   const widgetInfo = await fetch();
-  //   const data = getWidgetData(widgetInfo);
-  //   const { plotly, deephaven } = data;
-  //   const isDefaultTemplate = !deephaven.is_user_set_template;
-  //   const tableColumnReplacementMap = await getDataMappings(widgetInfo);
-  //   return new UiChartModel(
-  //     dh,
-  //     tableColumnReplacementMap,
-  //     plotly.data,
-  //     plotly.Ui ?? {},
-  //     isDefaultTemplate,
-  //     ChartTheme
-  //   );
-  // }, [dh, fetch]);
+      const childObjects = await Promise.all(
+        exportedObjects.map(o => (o as any).fetch())
+      );
+      console.log('MJB child objects are', childObjects);
+      setObjects(childObjects as any);
+    });
+  }, [dh, reloadObjects, reloadWidget, widget]);
 
-  // return (
-  //   <ChartPanel
-  //     // eslint-disable-next-line react/jsx-props-no-spreading
-  //     {...rest}
-  //     makeModel={makeModel}
-  //     Plotly={Plotly}
-  //   />
-  // );
+  useEffect(() => {
+    reloadWidget();
+  }, [reloadWidget]);
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        width: '100%',
+      }}
+    >
+      {objects.map((o, i) => (
+        // eslint-disable-next-line react/no-array-index-key
+        // <ComponentObject object={o} key={`${i}`} />
+        <ComponentObject object={o} key={shortid()} />
+      ))}
+    </div>
+  );
 }
 
-ComponentPanel.displayName = 'UiPanel';
+ComponentPanel.displayName = 'ComponentPanel';
 
 export default ComponentPanel;

@@ -3,17 +3,9 @@ import type { Table } from '@deephaven/jsapi-types';
 import Log from '@deephaven/log';
 import { useApi } from '@deephaven/jsapi-bootstrap';
 import { PanelProps } from '@deephaven/dashboard';
+import TextInputWidget from './TextInput';
 
 const log = Log.module('@deephaven/js-plugin-layout/TextInputPanel');
-
-export interface TextInputWidget {
-  addEventListener: (
-    type: string,
-    listener: (event: unknown) => void
-  ) => () => void;
-  exportedObjects: { fetch(): Promise<Table> }[];
-  sendMessage: (message: string, args: unknown[]) => void;
-}
 
 export interface TextInputPanelProps extends PanelProps {
   fetch(): Promise<TextInputWidget>;
