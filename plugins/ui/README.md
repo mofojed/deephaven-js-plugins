@@ -450,6 +450,27 @@ def text_filter_table(source: Table, column: str):
 
 Alternatively, we could have an overlay displayed on the table if an invalid filter is entered.
 
+#### Cross-Dependent Parameters (DH-15360)
+
+You can define parameters which are dependent on another parameter. You could define two range sliders for a low and high, for example:
+
+```python
+import deephaven.ui as ui
+
+@ui.component
+def two_sliders(min = 0, max = 10000):
+    lo, set_lo = use_state(min)
+    hi, set_hi = use_state(max)
+
+    # Use the `hi` currently set as the `max`. Will update automatically as `hi` is adjusted
+    s1 = ui.slider(value=lo, min=min, max=hi, on_change=set_lo)
+
+    # Use the `lo` currently set as the `min`. Will update automatically as `lo` is adjusted
+    s2 = ui.slider(value=hi, min=lo, max=max, on_change=set_hi)
+
+    return [s1, s2]
+```
+
 #### Multiple Queries (Enterprise only)
 
 We want to be able to pull in widgets/components from multiple queries. In DHC we have the [URI resolver](https://deephaven.io/core/docs/reference/uris/uri/) for resolving another resource, and should be able to extend that same functionality to resolve another PQ.
@@ -586,11 +607,11 @@ def stock_widget(source: Table, column: str = "Sym"):
     )
 ```
 
-#### Scoping/Contexts
+#### Scoping
 
 With Parameterized Queries, scope of the query is limited to a particular session. However, it would be interesting if it were possible to share a context among all sessions for the current user, and/or share a context with other users even; e.g. if one user selects and applies a filter, it updates immediately for all other users with that dashboard open. So three cases:
 
-1. Limit to a particular session (Paramterized Queries, should likely be the default)
+1. Limit to a particular session (like Paramterized Queries, should likely be the default)
 2. Limit to the particular user (so if you have the same PQ open multiple tabs, it updates in all)
 3. Share with all users (if one user makes a change, all users see it)
 
