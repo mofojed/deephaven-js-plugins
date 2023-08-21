@@ -559,7 +559,8 @@ Using the proposed components and selection listeners, you should be able to bui
 - Dual range slider for specifying the "Size" of trades to filter on
 - Table showing only the filtered range
 - Text input to filter a specific Sym for a plot derived from the table
-- Double clicking a row within the table selects that Sym and updates the text input to reflect that
+- Clicking a row within the table selects that Sym and updates the text input to reflect that
+- Clicking a data point in the plot will print out that data
 
 ![Putting it all together](./assets/putting_it_all_together.png)
 
@@ -601,8 +602,11 @@ def stock_widget(source: Table, column: str = "Sym"):
             ),
             # Text input will update the sym when it is changed, or display the new value when selected from the table
             ui.text_input(value=sym, on_change=lambda event: set_sym(event["value"])),
-            # Plot will be filtered/updated based on the above logic
-            p,
+            # Wrap the filtered plot so you can select data
+            ui.interactive_plot(
+                p=p,
+                on_data_clicked=lambda event: print(f'data selected: {str(event)}')
+            ),
         ]
     )
 ```
