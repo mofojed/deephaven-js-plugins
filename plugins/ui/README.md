@@ -192,7 +192,7 @@ def text_filter_table(source: Table, column: str):
     value, set_value = ui.use_state("")
 
     # TODO: Should be using QST/filters here instead, e.g. https://github.com/deephaven/deephaven-core/issues/3784
-    t = ui.use_memo(lambda: source.where(f"{column}=`{value}`"), [value])
+    t = source.where(f"{column}=`{value}`")
 
     # Return a column that has the text input, then the table below it
     return ui.flex(
@@ -219,6 +219,85 @@ def double_filter_table(source: Table, column: str):
   ], direction="row")
 ```
 
+#### Memoization/Caching
+
+React has a hook [useMemo](https://react.dev/reference/react/useMemo) which is used to cache operations if no dependencies have changed. Streamlit has [Caching](https://docs.streamlit.io/library/advanced-features/caching#basic-usage) as well using `@st.cache_data` and `@st.cache_resource` decorators. We will definitely need some sort of caching, we will need to determine the paradigm. Consider first the example without any caching:
+
+```python
+import deephaven.ui as ui
+from deephaven.parquet import read
+
+@ui.component
+def my_caching_component(parquet_path = "/data/stocks.parquet"):
+    value, set_value = ui.use_state("")
+
+    # This parquet `read` operation fires _every_ time the component is re-rendered, which happens _every_ time the `value` is changed. This is unnecessary, since we only want to re-run the `.where` part and keep the `source` the same.
+    source = read(parquet_path)
+    t = source.where(f"sym=`{value}`")
+
+    return ui.flex(
+        [
+            ui.text_input(
+                value=value, on_change=lambda event: set_value(event["value"])
+            ),
+            t,
+        ]
+    )
+```
+
+Now using a `use_memo` hook, similar to React. This re-enforces the `use_*` hook type behaviour.
+
+```python
+import deephaven.ui as ui
+from deephaven.parquet import read
+
+@ui.component
+def my_caching_component(parquet_path = "/data/stocks.parquet"):
+    value, set_value = ui.use_state("")
+
+    # The `read` function will only be called whenever `parquet_path` is changed
+    source = use_memo(lambda : read(parquet_path), [parquet_path])
+    t = source.where(f"sym=`{value}`")
+
+    return ui.flex(
+        [
+            ui.text_input(
+                value=value, on_change=lambda event: set_value(event["value"])
+            ),
+            t,
+        ]
+    )
+```
+
+Trying to define it as a decorator gets kind of messy within a functional component. You'd probably want to define at a top level, which is kind of weird:
+
+```python
+import deephaven.ui as ui
+from deephaven.parquet import read
+
+# Decorator wraps function and will only re-run the function if it hasn't run before or if it doesn't already have the result from a previous execution with the same parameters
+@ui.memo
+def parquet_table(path: str):
+    return read(path)
+
+@ui.component
+def my_caching_component(parquet_path = "/data/stocks.parquet"):
+    value, set_value = ui.use_state("")
+
+    # Memoization is handled by the `parquet_table` method itself
+    source = parquet_table(parquet_path)
+    t = source.where(f"sym=`{value}`")
+
+    return ui.flex(
+        [
+            ui.text_input(
+                value=value, on_change=lambda event: set_value(event["value"])
+            ),
+            t,
+        ]
+    )
+```
+
 #### Table Actions/Callbacks
 
 We want to be able to react to actions on the table as well. This can be achieved by adding a callback to the table, and used to set the state within our component. For example, if we want to filter a plot based on the selection in another table:
@@ -241,6 +320,30 @@ def table_with_plot(source: Table, column: str = "Sym", default_value: str = "")
         ),
         [source],
     )
+
+    # Create the plot by filtering the source using the currently selected value
+    p = ui.use_memo(
+        lambda: plot_xy(
+            t=source.where(f"{column}=`{value}`"), x="Timestamp", y="Price"
+        ),
+        [value],
+    )
+
+    return ui.flex([selectable_table, p])
+```
+
+OR could we add an attribute to the table instead? And a custom function on table itself to handle adding that attribute? E.g.:
+
+```python
+import deephaven.ui as ui
+
+@ui.component
+def table_with_plot(source: Table, column: str = "Sym", default_value: str = ""):
+    value, set_value = ui.use_state(default_value)
+
+    # Add the row clicked attribute
+    # equivalent to `selectable_table = t.with_attributes({'__on_row_clicked': my_func})`
+    selectable_table = source.on_row_clicked(lambda event: set_value(event["data"][column]))
 
     # Create the plot by filtering the source using the currently selected value
     p = ui.use_memo(
@@ -315,22 +418,118 @@ def text_input_plot(source: Table, column: str = "Sym"):
     )
 ```
 
-#### Plotting from a table
+#### Required Parameters
 
-If you want to plot from a table, you can use the `plot` function. For example, if we want to plot the "Last" price from the filtered table:
+Sometimes we want to require the user to enter a value before applying filtering operations. We can do this by adding a `required` label to the `text_input` itself, and then displaying a label instead of the table:
 
-![Alt text](./assets/plot_from_table.png)
+```python
 
-````python
 import deephaven.ui as ui
 
 @ui.component
-def plot_from_table(source: Table, column: str = "Sym"):
-    lo, set_lo = ui.use_state(0)
-    hi, set_hi = ui.use_state(10000)
+def text_filter_table(source: Table, column: str):
+    value, set_value = ui.use_state('')
 
-    # Create the filtered table
-    filtered_table = ui.use_memo
+    # Return a column that has the text input, then the table below it
+    return ui.flex(
+        [
+            ui.text_input(
+                value=value,
+                on_change=lambda event: set_value(event["value"]),
+                required=True
+            ),
+            (
+                # Use Python ternary operator to only display the table if there has been a value entered
+                source.where(f"{column}=`{value}`")
+                if value
+                else ui.info('Please input a filter value')
+            ),
+        ]
+    )
+```
+
+Alternatively, we could have an overlay displayed on the table if an invalid filter is entered.
+
+#### Multiple Queries (Enterprise only)
+
+We want to be able to pull in widgets/components from multiple queries. In DHC we have the [URI resolver](https://deephaven.io/core/docs/reference/uris/uri/) for resolving another resource, and should be able to extend that same functionality to resolve another PQ.
+
+```python
+# Persistent Query 'A'
+t = empty_table(100).update("a=i")
+
+# Persistent Query 'B'
+t = empty_table(100).update("b=i")
+
+# Executed in console session or a 3rd query
+import deephaven.ui as ui
+from deephaven.uri import resolve
+
+@ui.component
+def multi_query():
+    # Since the `resolve` method is only called from within a `@ui.component` wrapped function, it is only called when the component is actually rendered (e.g. opened in the UI)
+    # Note however this is still resolving the table on the server side, rather than the client fetching the table directly.
+    t1 = resolve('dh+plain://query-a:10000/scope/t')
+    t2 = resolve('dh+plain://query-b:10000/scope/t')
+    return [t1, t2]
+
+mq = multi_query()
+```
+
+We could also have a custom function defined such that an object will tell the UI what table to fetch; the downside of this is you would be unable to chain any table operations afterwards (NOTE: It _may_ be possible to build it such that we could do this, using QST and just having the UI apply an arbitrary set of operations defined by the QST afterwards? But may be tricky to build):
+
+```python
+# Persistent Query 'A'
+t = empty_table(100).update("a=i")
+
+# Persistent Query 'B'
+t = empty_table(100).update("b=i")
+
+# Executed in console session or a 3rd query
+import deephaven.ui as ui
+
+@ui.component
+def multi_query():
+    # Object that contains metadata about the table source, then UI client must fetch
+    t1 = ui.pq_table("Query A", "t")
+    t2 = ui.pq_table("Query B", "t")
+    return [t1, t2]
+
+mq = multi_query()
+```
+
+It may be that we want to do something interesting, such as defining the input in one query, and defining the output in another query.
+
+```python
+# Persistent Query 'A'
+import deephaven.ui as ui
+
+@ui.component
+def my_input(value, on_change):
+    return ui.text_input(value, on_change)
+
+# Persistent Query 'B'
+import deephaven.ui as ui
+
+@ui.component
+def my_output(value):
+    return empty_table(100).update(f"sym=`{value}`")
+
+# Executed in console session or a 3rd query
+import deephaven.ui as ui
+
+@ui.component
+def multi_query():
+    sym, set_sym = use_state('')
+
+    # TODO: Would this actually work? Resolving to a custom type defined in plugins rather than a simple table object
+    my_input = resolve('dh+plain://query-a:10000/scope/my_input')
+    my_output = resolve('dh+plain://query-b:10000/scope/my_output')
+
+    return [my_input(sym, set_sym), my_output(sym)]
+
+mq = multi_query()
+```
 
 #### Putting it all together
 
@@ -385,7 +584,7 @@ def stock_widget(source: Table, column: str = "Sym"):
             p,
         ]
     )
-````
+```
 
 #### Scoping/Contexts
 
@@ -456,3 +655,12 @@ dft = ui.render(double_filter_table(source, "Sym"))
 I think the decorator syntax is less verbose and more clear about how to use; especially when rendering/building a component composed of many other components. Calling `ui.render` to render all the children component seems problematic. Marking every possible component as just `@ui.component` is pretty straightforward, and should allow for easily embedding widgets.
 
 Note there was an interesting project for using [React Hooks in Python](https://github.com/amitassaraf/python-hooks). However, it is not recommended for production code and likely has some performance issues. It [inspects the call stack](https://github.com/amitassaraf/python-hooks/blob/main/src/hooks/frame_utils.py#L86) to manage hook state, which is kind of neat in that you don't need to wrap your functions; however that would come at performance costs, and also more difficult to be strict (e.g. requiring functions that use hooks to be wrapped in `@ui.component` - maybe there's other dev related things we want to do in there).
+
+#### Glossary
+
+- **Programmatic Layouts**: The concept of being able to programmatically define how output from a command will appear in the UI.
+- **Callbacks**: Programmatically defined functions that will execute when an action is taken in the UI (e.g. inputting text, selecting a row in a table)
+- **Widget**: Custom objects defined on the server. Defined by `LiveWidget`, only implemented by our native `Figure` object right now.
+- **ObjectType Plugin**: A plugin defined for serializing custom objects between server/client.
+- **deephaven.ui**: Proposed name of the module containing the programmatic layout/callback functionality
+- **Component**: Denoted by `@ui.component` decorator, a Functional Component programmatically defined with a similar rendering lifecycle as a [React Functional Component](https://react.dev/learn#components). (Note: Might be more proper to name it `Element` and denote with `@ui.element`)

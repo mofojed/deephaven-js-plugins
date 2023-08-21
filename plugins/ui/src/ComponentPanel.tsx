@@ -79,8 +79,8 @@ function ComponentPanel(props: ComponentPanelProps) {
     >
       {objects.map((o, i) => (
         // eslint-disable-next-line react/no-array-index-key
-        // <ComponentObject object={o} key={`${i}`} />
-        <ComponentObject object={o} key={shortid()} />
+        <ComponentObject object={o} key={`${i}`} />
+        // <ComponentObject object={o} key={shortid()} />
       ))}
     </div>
   );
