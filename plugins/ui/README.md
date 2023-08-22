@@ -465,6 +465,26 @@ def two_sliders(min = 0, max = 10000):
     return [s1, s2]
 ```
 
+Or if you want a drop-down list that is dependent only on a filtered list of results from another table:
+
+```python
+@ui.component
+def filtered_accounts(source):
+    company, set_company = use_state('')
+    trader, set_trader = use_state('')
+
+    return [
+        # Use the distinct "Company" values as the possible options in the dropdown
+        ui.dropdown(source.select_distinct("Company")),
+
+        # Use the distinct "Trader" values after filtering the source by "Company"
+        ui.dropdown(source.where(f"Company={company}").select_distinct("Trader")),
+
+        # Show the table filtered on both "Company" and "Trader" selected
+        source.where([f"Company={company}", f"Trader={trader}"])
+    ]
+```
+
 #### Multiple Queries (Enterprise only)
 
 We want to be able to pull in widgets/components from multiple queries. In DHC we have the [URI resolver](https://deephaven.io/core/docs/reference/uris/uri/) for resolving another resource, and should be able to extend that same functionality to resolve another PQ.
@@ -630,6 +650,8 @@ p = ui.panel(my_component(), title="My Title")
 
 Note that a panel can only have one root component, and cannot be nested within other components (other than the layout ones `ui.row`, `ui.column`, `ui.stack`, `ui.dashboard`)
 
+TBD: How do you specify a title and/or tooltip for your panel? How do panels get a title or tooltip by default?
+
 ##### ui.row, ui.column, ui.stack, ui.dashboard
 
 You can define a dashboard using these functions. By wrapping in a `ui.dashboard`, you are defining a whole dashboard. If you omit the `ui.dashboard`, it will add the layouts you've defined to the existing dashboard:
@@ -751,11 +773,11 @@ Note there was an interesting project for using [React Hooks in Python](https://
 
 Breaking down the project schedule to be roughly:
 
-- Phase 1 (August): Distribute API syntax for discussion, gather feedback
+- **Phase 1 "Definition" (August)**: Distribute API syntax for discussion, gather feedback
   - Bender gets a document together with examples mocking out the proposed syntax
   - Solicit feedback from interested stakeholders on the proposed syntax and get agreement
   - Rough Proof of Concept prototype built
-- Phase 2 "Alpha" (September 4 - October 13, 6 weeks): Define custom components
+- **Phase 2 "Alpha" (September 4 - October 13, 6 weeks)**: Define custom components
   - Create building blocks for defining custom components
   - Python side (Joe):
     - Create `deephaven.ui` module, testing
@@ -776,7 +798,7 @@ Breaking down the project schedule to be roughly:
     - Update Linker to allow setting links between components (instead of just panels)
     - Handle dehydrating/rehydrating of components
     - Release "Alpha"
-- Phase 3 "Beta" (October 16 - November 17, 5 weeks): Define layouts/dashboards
+- **Phase 3 "Beta" (October 16 - November 17, 5 weeks):** Define layouts/dashboards
   - Python side (Joe):
     - Create `@ui.panel`, `@ui.dashboard` components?
   - JavaScript side (Matt):
@@ -785,7 +807,7 @@ Breaking down the project schedule to be roughly:
     - Fix any critical bugs
     - Incorporate feedback when possible, or record for later implementation in Phase 4 and beyond
   - Release "Beta"
-- Phase 4 (November 20 - December 22, 5 weeks): Polish
+- **Phase 4 (November 20 - December 22, 5 weeks):** Polish
   - Fix any bugs that are identified
   - Lots of testing
   - Add any additional components that are requested based on feedback from previous phases
