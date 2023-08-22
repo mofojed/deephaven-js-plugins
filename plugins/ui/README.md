@@ -605,6 +605,73 @@ def stock_widget(source: Table, column: str = "Sym"):
     )
 ```
 
+#### Layouts/Dashboards
+
+The above examples focussed solely on defining components, all of which are simply rendered within one panel by default. Part of the ask is also about defining panels and dashboards/layouts. We use [Golden Layout](https://golden-layout.com/examples/), which defines all layouts in terms of placing Panels in [Rows, Columns and Stacks](https://golden-layout.com/tutorials/getting-started.html):
+
+- **Panel**: A panel with a tab header, containing one or more components. Can be moved around and resized within a dashboard.
+- **Row**: A row of panels arranged horizontally.
+- **Column**: A column of panels arranged vertically.
+- **Stack**: A stack of panels that overlap one another. Click the tab header to switch between them.
+- **Dashboard**: A layout of an entire dashboard
+
+We should be able to map these by using `ui.panel`, `ui.row`, `ui.column`, `ui.stack`, and `ui.dashboard`.
+
+##### ui.panel
+
+By default, the top level `@ui.component` will automatically be wrapped in a panel, so no need to define it unless you want custom panel functionality, such as giving the tab a custom name, e.g.:
+
+```python
+import deephaven.ui as ui
+
+# The only difference between this and `p = my_component()` is that the title of the panel will be set to `My Title`
+p = ui.panel(my_component(), title="My Title")
+```
+
+Note that a panel can only have one root component, and cannot be nested within other components (other than the layout ones `ui.row`, `ui.column`, `ui.stack`, `ui.dashboard`)
+
+##### ui.row, ui.column, ui.stack, ui.dashboard
+
+You can define a dashboard using these functions. By wrapping in a `ui.dashboard`, you are defining a whole dashboard. If you omit the `ui.dashboard`, it will add the layouts you've defined to the existing dashboard:
+
+- `ui.row` will add a new row of the panels defined at the bottom of the current dashboard
+- `ui.column` will add a new column of panels defined at the right of the current dashboard
+- `ui.stack` will add a new stack of panels at the next spot in the dashboard
+
+Defining these without a `ui.dashboard` is likely only going to be applicable to testing/iterating purposes, and in most cases you'll want to define the whole dashboard. For example, to define a dashboard with an input panel in the top left, a table in the top right, and a stack of plots across the bottom, you could define it like so:
+
+```python
+import deephaven.ui as ui
+
+# ui.dashboard takes only one root element
+d = ui.dashboard(
+    ui.column([
+        ui.row([my_input_panel(), my_table_panel()]),
+        ui.stack([my_plot1(), my_plot2()])
+    ])
+)
+```
+
+Much like handling other components, you can do a prop/state thing to handle changing inputs/filtering appropriately:
+
+```python
+import deephaven.ui as ui
+
+# Need to add the `@ui.component` decorator so we can keep track of state
+@ui.component
+def my_dashboard():
+    value, set_value = use_state('')
+
+    return ui.dashboard(
+        ui.column([
+            ui.row([my_input_panel(value=value, on_change=set_value), my_table_panel(value=value)]),
+            ui.stack([my_plot1(value=value), my_plot2(value=value)])
+        ])
+    )
+
+d = my_dashboard()
+```
+
 #### Scoping
 
 With Parameterized Queries, scope of the query is limited to a particular session. However, it would be interesting if it were possible to share a context among all sessions for the current user, and/or share a context with other users even; e.g. if one user selects and applies a filter, it updates immediately for all other users with that dashboard open. So three cases:
@@ -675,7 +742,56 @@ I think the decorator syntax is less verbose and more clear about how to use; es
 
 Note there was an interesting project for using [React Hooks in Python](https://github.com/amitassaraf/python-hooks). However, it is not recommended for production code and likely has some performance issues. It [inspects the call stack](https://github.com/amitassaraf/python-hooks/blob/main/src/hooks/frame_utils.py#L86) to manage hook state, which is kind of neat in that you don't need to wrap your functions; however that would come at performance costs, and also more difficult to be strict (e.g. requiring functions that use hooks to be wrapped in `@ui.component` - maybe there's other dev related things we want to do in there).
 
-#### Glossary
+##### Panel Titles/Tooltips
+
+- How do we preserve the behaviour of panel/tab tooltips for components?
+- How do we have components save their state?
+
+## Scheduling
+
+Breaking down the project schedule to be roughly:
+
+- Phase 1 (August): Distribute API syntax for discussion, gather feedback
+  - Bender gets a document together with examples mocking out the proposed syntax
+  - Solicit feedback from interested stakeholders on the proposed syntax and get agreement
+  - Rough Proof of Concept prototype built
+- Phase 2 "Alpha" (September 4 - October 13, 6 weeks): Define custom components
+  - Create building blocks for defining custom components
+  - Python side (Joe):
+    - Create `deephaven.ui` module, testing
+    - Create render context/lifecycle
+      - Render into virtual object model (e.g. Virtual DOM)
+    - Create `@ui.component`, `use_state`, `use_memo` hooks, `ui.flex`, `ui.text_input`, `ui.slider` components
+    - Define/create messaging to send updates to client
+      - First send entire virtual DOM.
+      - Send updates for just the elements that are changed/updated (can start with just re-sending the whole document, but will need to break it down into just element updates afterwards).
+  - JavaScript side (Matt):
+    - Create `@deephaven/js-plugin-ui` JS plugin, wired up with testing
+    - Create `DashboardPlugin` to open up components created by `@ui.component`
+      - Render into one panel for now; multi-panel/dashboard layout comes in the next phase
+    - `ObjectPlugin` (`WidgetPlugin`? `ElementPlugin`? whatever the name) for plugins to wire up just displaying an object as an element (rather than all the panel wiring)
+      - `@deephaven/js-plugin-ui` needs to be able to render elements as defined in other `ObjectPlugin`s that are loaded.
+      - `ObjectPlugin`s that match `ui.flex`, `ui.text_input`, `ui.slider` elements
+    - Handle updates sent from the server
+    - Update Linker to allow setting links between components (instead of just panels)
+    - Handle dehydrating/rehydrating of components
+    - Release "Alpha"
+- Phase 3 "Beta" (October 16 - November 17, 5 weeks): Define layouts/dashboards
+  - Python side (Joe):
+    - Create `@ui.panel`, `@ui.dashboard` components?
+  - JavaScript side (Matt):
+    - Handle opening up `@ui.panel` in a dashboard?
+  - Gather feedback from actual usage
+    - Fix any critical bugs
+    - Incorporate feedback when possible, or record for later implementation in Phase 4 and beyond
+  - Release "Beta"
+- Phase 4 (November 20 - December 22, 5 weeks): Polish
+  - Fix any bugs that are identified
+  - Lots of testing
+  - Add any additional components that are requested based on feedback from previous phases
+  - Release "Production"
+
+## Glossary
 
 - **Programmatic Layouts**: The concept of being able to programmatically define how output from a command will appear in the UI.
 - **Callbacks**: Programmatically defined functions that will execute when an action is taken in the UI (e.g. inputting text, selecting a row in a table)
