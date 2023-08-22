@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { Chart, ChartModel, ChartModelFactory } from '@deephaven/chart';
 import { useApi } from '@deephaven/jsapi-bootstrap';
 import type { Figure } from '@deephaven/jsapi-types';
-import Plotly from 'plotly.js-dist-min';
 import shortid from 'shortid';
 
 export interface FigureObjectProps {
@@ -31,7 +30,7 @@ function FigureObject(props: FigureObjectProps) {
       className="ui-figure-object"
       style={{ position: 'relative', flexGrow: 1, flexShrink: 1, flexBasis: 1 }}
     >
-      {model && <Chart model={model} key={key} Plotly={Plotly} />}
+      {model && <Chart model={model} key={key} />}
     </div>
   );
 }
