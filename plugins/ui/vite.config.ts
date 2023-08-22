@@ -17,8 +17,6 @@ export default defineConfig(({ mode }) => ({
         'react-dom',
         'redux',
         'react-redux',
-        '@deephaven/chart',
-        '@deephaven/iris-grid',
         '@deephaven/jsapi-bootstrap',
       ],
     },
