@@ -3,7 +3,6 @@ import { type ChartPanelProps } from '@deephaven/dashboard-core-plugins';
 import { useApi } from '@deephaven/jsapi-bootstrap';
 import type { Figure, Table } from '@deephaven/jsapi-types';
 import Log from '@deephaven/log';
-import shortid from 'shortid';
 import ComponentObject from './ComponentObject';
 
 const log = Log.module('@deephaven/js-plugin-ui/UiPanel');
@@ -37,13 +36,13 @@ function ComponentPanel(props: ComponentPanelProps) {
     const childObjects = await Promise.all(
       widget.exportedObjects.map(o => o.fetch())
     );
-    log.info('MJB new objects', childObjects);
+    log.info('new objects', childObjects);
     setObjects(childObjects);
   }, [widget]);
 
   const reloadWidget = useCallback(async () => {
     const widgetInfo = await fetch();
-    log.info('MJB widgetInfo', widgetInfo);
+    log.info('widgetInfo', widgetInfo);
     setWidget(widgetInfo);
   }, [fetch]);
 
@@ -54,12 +53,12 @@ function ComponentPanel(props: ComponentPanelProps) {
     reloadObjects();
     return widget.addEventListener(dh.Widget.EVENT_MESSAGE, async event => {
       const { exportedObjects } = (event as any).detail;
-      console.log('MJB event is', event);
+      log.info('event is', event);
 
       const childObjects = await Promise.all(
         exportedObjects.map(o => (o as any).fetch())
       );
-      console.log('MJB child objects are', childObjects);
+      log.info('child objects are', childObjects);
       setObjects(childObjects as any);
     });
   }, [dh, reloadObjects, reloadWidget, widget]);

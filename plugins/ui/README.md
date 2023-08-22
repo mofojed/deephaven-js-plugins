@@ -1,18 +1,12 @@
-# Deephaven UI Plugin
+# deephaven.ui Plugin (alpha)
 
-Prototype of a Deephaven UI plugin. Will have functionality for:
+Prototype of the deephaven.ui plugin, mocking out some ideas of how to code up programmatic layouts and callbacks. This is currently very much a prototype and should be used for discussion and evaluation purposes only. Name `deephaven.ui` is not set in stone.
 
-- Programmatic layouts
-- Callbacks
-- Interactive widgets
+## Development Installation/Setup
 
-# Deephaven UI Plugin (alpha)
-
-Prototype of a Deephaven UI plugin, mocking out some ideas of how to code up programmatic layouts and callbacks.
-
-- Break it down into a couple parts:
-  - UI Primitives and Callbacks: Creating inputs in the UI and that kind of thing to control tables and what not. Things are just laid out automatically in the client.
-  - Programmatic Layouts: Define how to lay out all the components using programmatic layouts
+1. Until a fix for a bug found with exporting custom objects, you'll need to build/run deephaven-core from @niloc132's branch: https://github.com/niloc132/deephaven-core/tree/4338-live-pyobject
+2. Build/Install the `deephaven-plugin-ui` Python plugin in your deephaven-core set up: https://github.com/mofojed/deephaven-plugin-ui
+3. Follow the instructions in the [README.md at the root](../../README.md) of this repository to build/install the JS plugins (including this one).
 
 ## Other Solutions/Examples
 
